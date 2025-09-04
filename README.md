@@ -1,7 +1,26 @@
 # Phrack 40th Anniversary CTF Challenge Solution
 
 
-# Spoilers
+# Spoilers Below
+
+# Intro
+
+# Using Binary ninja
+
+# Noticing odd things
+IOCTLS (read file, gFileBuffer etc)
+Driver Extension etc.
+Structure of linked list etc
+Notice that theres a check that allows us to read the file. into our bufffer.
+
+# UAF
+confirmed the UAF
+
+# exploiting by spraying
+spray
+read file
+
+# got flag, thoughts on kaslr windows 11 etc.
 
 
 
