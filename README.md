@@ -359,6 +359,11 @@ After running our exploit we were able to capture the flag.
 This was ran on the following version of windows. Also beware the exploit crashes the machine sometimes.
 <img width="533" height="69" alt="image" src="https://github.com/user-attachments/assets/462fc9de-0aee-411e-a0a9-330faba589fe" />
 
+# Conclusion
+Big thanks to @chompie1337 for this challenge, as it was a great way to spend a couple days getting my feet wet
+with windows kernel heap exploitation.
+
+Also many thanks to all the research listed below!
 
 # References
 * https://github.com/vp777/Windows-Non-Paged-Pool-Overflow-Exploitation&ved=2ahUKEwjEoKOV67-PAxVPSjABHeJsJEcQFnoECBcQAQ&usg=AOvVaw2WpS4aLLeq9QtCeg4NUAc-
