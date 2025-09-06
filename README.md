@@ -6,9 +6,17 @@
 # Intro
 
 # Using Binary ninja
-After opening the driver in binary ninja, i immediately noticed the driver entry allocates a [ListEntry type structure](https://learn.microsoft.com/en-us/windows/win32/api/ntdef/ns-ntdef-list_entry) And stores it in the [DriverExtension](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/device-extensions) Field of the DeviceObject.
+After opening the driver in binary ninja, i immediately noticed the driver entry allocates a [ListEntry type structure](https://learn.microsoft.com/en-us/windows/win32/api/ntdef/ns-ntdef-list_entry) and stores it in the [DeviceExtension](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/device-extensions) field of the DeviceObject. 
 
+Driver extensions allow developers to store the 'state' of the driver throughout its lifetime. 
 
+<img width="809" height="304" alt="image" src="https://github.com/user-attachments/assets/f23c9146-3ec9-4181-9e91-b51570853b22" />
+
+Also the driver only has a few IOCTLS, the most interesting being the dispatch cleanup and the main ioctl handler.
+
+<img width="520" height="55" alt="image" src="https://github.com/user-attachments/assets/00a7a662-279e-4a8a-8520-960c2c070681" />
+
+# IOCTLS
 
 # Noticing odd things
 IOCTLS (read file, gFileBuffer etc)
