@@ -3,9 +3,7 @@
 
 # Spoilers Below
 
-# Intro
-
-# Using Binary ninja
+# Initial Looks
 After opening the driver in binary ninja, i immediately noticed the driver entry allocates a [ListEntry type structure](https://learn.microsoft.com/en-us/windows/win32/api/ntdef/ns-ntdef-list_entry) and stores it in the [DeviceExtension](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/device-extensions) field of the DeviceObject. 
 
 Driver extensions allow developers to store the 'state' of the driver throughout its lifetime. 
@@ -93,6 +91,48 @@ if the user buffer contains 0x70 then the node will not be removed. But will sti
 <img width="707" height="942" alt="image" src="https://github.com/user-attachments/assets/16c181a1-8b51-414f-9e00-9a5cf3b2d79e" />
 
 
+# Exploitation Thought Process
+The current process i was thinking of the perform the exploit was the following
+
+We connect to the driver and allocate a node of size 0xC0
+
+```
+[HEAD] -> <- [PID1] -> [HEAD]
+```
+We can close the handle to the driver triggering the cleanup
+```
+[HEAD] -> <- [FREE] -> [HEAD]
+```
+Then we can spray the heap so something we control gets put there
+
+```
+[HEAD] -> <- [Something we control] -> [HEAD]
+```
+
+Ideally we would be able to fake object the driver expects and keep the same pid
+so the driver knows its our node. As well as setting the IsFreed variable to be a value
+
+that bypasses this check 
+<img width="533" height="39" alt="image" src="https://github.com/user-attachments/assets/87da5bb7-3070-4307-a579-54b8e860480a" />
+
+This would allow us to read the file into the global kernel buffer.
+
+From there we should be able to read that kernel buffer into an address we control using the read ioctl
+<img width="666" height="473" alt="image" src="https://github.com/user-attachments/assets/4dd9dc42-0e2f-432e-805c-82dfa65a5f46" />
+
+
+
+```
+{
+LIST_ENTRY* entry
+UINT64 PID <- we need to keep it the same
+UINT64 IsFreed <- we need to set it to a value that passes the check
+MDL* Mdl
+UINT64 MappedPhysicalPages <- we need to set it to a user mode address that we control to see the output of the flag.
+UINT64 LengthOfUserData
+VOID* UserData
+}
+```
 
 # Noticing odd things
 IOCTLS (read file, gFileBuffer etc)
