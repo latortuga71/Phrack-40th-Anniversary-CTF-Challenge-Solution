@@ -171,6 +171,9 @@ i was able to get my kernel object to be replaced by data we have full control o
 
 <img width="618" height="461" alt="image" src="https://github.com/user-attachments/assets/d83028c7-0c96-442c-9365-0dc1fe217f0c" />
 
+The state of the pool after our heap spray fills the empty spot with our fake object.
+<img width="830" height="466" alt="image" src="https://github.com/user-attachments/assets/a5b3af24-74db-4737-97f2-2abc12496464" />
+
 Our fake object with correct variables to bypass checks and exfiltrate the flag.
 <img width="511" height="182" alt="image" src="https://github.com/user-attachments/assets/092503a1-196b-4054-a15b-554564200371" />
 
