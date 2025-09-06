@@ -16,7 +16,7 @@ Also the driver only has a few IOCTLS, the most interesting being the dispatch c
 
 <img width="520" height="55" alt="image" src="https://github.com/user-attachments/assets/00a7a662-279e-4a8a-8520-960c2c070681" />
 
-# IOCTLS
+# Ioctls
 Taking a look at the ioctl handler its what you would expect a simple switch case with each handler.
 <img width="591" height="921" alt="image" src="https://github.com/user-attachments/assets/b9cc679c-95f9-4b93-bab8-a49ceceefeb1" />
 
@@ -38,7 +38,60 @@ void* blink
 struct metadata
 void* userbuffer
 ```
+```
 [HEAD] -> <- [NODE1] -> <- [NODE2] -> <- [HEAD]
+```
+The rest of the ioctls are quite interesting there is a function that allows you to read the flag 
+into a global kernel buffer that is allocated in the driver entry function 
+<img width="1041" height="595" alt="image" src="https://github.com/user-attachments/assets/e24c10e5-3831-4c44-8cd2-897aa2f0105d" />
+
+One that allocates an MDL for a user buffer, allowing us to specify an address in our own userland process space 
+
+that gets mapped into kernel memory. And allows the kernel to read and write to it.
+
+<img width="979" height="568" alt="image" src="https://github.com/user-attachments/assets/16fac13c-735c-414a-8a85-830df7bf2eb8" />
+
+As well as three others, one that reads from the kernel buffer into the mapped user buffer
+
+one that writes from our user buffer to the kernel buffer and one that frees the MDL.
+<img width="700" height="500" alt="image" src="https://github.com/user-attachments/assets/06240a3b-2c13-40d8-be07-0144977c680f" />
+<img width="644" height="453" alt="image" src="https://github.com/user-attachments/assets/d0d4015e-7e67-4e26-815e-c8adbcc1a8a7" />
+<img width="619" height="497" alt="image" src="https://github.com/user-attachments/assets/7b36a1cb-60d2-4a94-8e8b-4c0c02e98908" />
+
+
+
+After spending a couple days reversing i was able to come up with this structure for the user's node that is stored.
+```
+{
+LIST_ENTRY* entry
+UINT64 PID
+UINT64 IsFreed
+MDL* Mdl
+UINT64 MappedPhysicalPages
+UINT64 LengthOfUserData
+VOID* UserData
+}
+```
+It all added up but i was not able to actually exploit this functionality in any way.
+
+
+I was able to map a user buffer and copy data to the kernel buffer but i didnt really have
+
+
+full control over what was going on. So i took a step back and decided to look at the cleanup function.
+
+# Use After Free
+Taking a look at the cleanup function at a glance shows the driver
+
+checking if the calling process matches the pid in the linkedlist then attempts to free the MDL if still valid then performs a check
+
+that removes the node from the linked list. then frees the pool allocation for the whole node but there is a bug in the check.
+
+if the user buffer contains 0x70 then the node will not be removed. But will still be freed giving us a UAF bug.
+
+
+<img width="707" height="942" alt="image" src="https://github.com/user-attachments/assets/16c181a1-8b51-414f-9e00-9a5cf3b2d79e" />
+
 
 
 # Noticing odd things
