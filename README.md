@@ -2,9 +2,7 @@
 * https://github.com/xforcered/PhrackCTF/tree/master
 
 # Initial Looks
-After opening the driver in binary ninja, i immediately noticed the driver entry allocates a [ListEntry type structure](https://learn.microsoft.com/en-us/windows/win32/api/ntdef/ns-ntdef-list_entry) and stores it in the [DeviceExtension](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/device-extensions) field of the DeviceObject. 
-
-Driver extensions allow developers to store the 'state' of the driver throughout its lifetime. 
+After opening the driver in binary ninja, i immediately noticed the driver entry allocates a [ListEntry type structure](https://learn.microsoft.com/en-us/windows/win32/api/ntdef/ns-ntdef-list_entry) and stores it in the [DeviceExtension](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/device-extensions) field of the DeviceObject. Driver extensions allow developers to store the 'state' of the driver throughout its lifetime. 
 
 <img width="809" height="304" alt="image" src="https://github.com/user-attachments/assets/f23c9146-3ec9-4181-9e91-b51570853b22" />
 
@@ -16,13 +14,9 @@ Also the driver only has a few IOCTLS, the most interesting being the dispatch c
 Taking a look at the ioctl handler its what you would expect a simple switch case with each handler.
 <img width="591" height="921" alt="image" src="https://github.com/user-attachments/assets/b9cc679c-95f9-4b93-bab8-a49ceceefeb1" />
 
-Peeking at the first one shows that this function takes the user supplied buffer and creates a NODE of some structure type 
+Peeking at the first one shows that this function takes the user supplied buffer and creates a NODE of some structure type consisting of metadata such as the pid of the calling process.
+Then appends the userdata (our buffer) to that struct and adds that as a node to the linked list the linked list being the global driver state
 
-
-consisting of metadata such as the pid of the calling process etc then appends the userdata (our buffer) to that struct and 
-
-
-adds that as a node to the linked list the linked list being the global driver state
 <img width="1363" height="803" alt="image" src="https://github.com/user-attachments/assets/98d1a25e-7540-4de0-a6d7-05a8fce33d7a" />
 
 <img width="744" height="503" alt="image" src="https://github.com/user-attachments/assets/22a5ac44-5deb-4373-b937-e09d32f6d9c2" />
@@ -35,23 +29,39 @@ struct metadata
 void* userbuffer
 ```
 ```
-[HEAD] -> <- [NODE1] -> <- [NODE2] -> <- [HEAD]
+[HEAD] -> [NODE1] -> [NODE2] -> [HEAD]
 ```
-The rest of the ioctls are quite interesting there is a function that allows you to read the flag 
-into a global kernel buffer that is allocated in the driver entry function 
+The rest of the ioctls are quite interesting there is a function that allows you to read the flag into a global kernel buffer that is allocated in the driver entry function 
+One that allocates an MDL for a user buffer, allowing us to specify an address in our own userland process space that gets mapped into kernel memory. 
+
+
+
+Read Flag 
+
 <img width="1041" height="595" alt="image" src="https://github.com/user-attachments/assets/e24c10e5-3831-4c44-8cd2-897aa2f0105d" />
 
-One that allocates an MDL for a user buffer, allowing us to specify an address in our own userland process space 
 
-that gets mapped into kernel memory. And allows the kernel to read and write to it.
+Allocate MDL
 
 <img width="979" height="568" alt="image" src="https://github.com/user-attachments/assets/16fac13c-735c-414a-8a85-830df7bf2eb8" />
 
-As well as three others, one that reads from the kernel buffer into the mapped user buffer
 
+
+As well as three others, one that reads from the kernel buffer into the mapped user buffer 
 one that writes from our user buffer to the kernel buffer and one that frees the MDL.
+
+
+User To Kernel Copy
+
 <img width="700" height="500" alt="image" src="https://github.com/user-attachments/assets/06240a3b-2c13-40d8-be07-0144977c680f" />
+
+
+Kernel To User Copy
+
 <img width="644" height="453" alt="image" src="https://github.com/user-attachments/assets/d0d4015e-7e67-4e26-815e-c8adbcc1a8a7" />
+
+Free Mdl
+
 <img width="619" height="497" alt="image" src="https://github.com/user-attachments/assets/7b36a1cb-60d2-4a94-8e8b-4c0c02e98908" />
 
 
@@ -68,13 +78,7 @@ UINT64 LengthOfUserData
 VOID* UserData
 }
 ```
-It all added up but i was not able to actually exploit this functionality in any way.
-
-
-I was able to map a user buffer and copy data to the kernel buffer but i didnt really have
-
-
-full control over what was going on. So i took a step back and decided to look at the cleanup function.
+It all added up but i was not able to actually exploit this functionality in any way. I was able to map a user buffer and copy data to the kernel buffer but i didnt really have full control over what was going on. So i took a step back and decided to look at the cleanup function.
 
 # Use After Free
 Taking a look at the cleanup function at a glance shows the driver
