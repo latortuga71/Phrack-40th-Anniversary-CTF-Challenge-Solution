@@ -47,7 +47,7 @@ Allocate MDL
 
 
 
-As well as three others, one that reads from the kernel buffer into the mapped user buffer 
+As well as three others, one that reads from the kernel buffer into the mapped user buffer, 
 one that writes from our user buffer to the kernel buffer and one that frees the MDL.
 
 
