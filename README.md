@@ -31,8 +31,8 @@ void* userbuffer
 ```
 [HEAD] -> [NODE1] -> [NODE2] -> [HEAD]
 ```
-The rest of the ioctls are quite interesting there is a function that allows you to read the flag into a global kernel buffer that is allocated in the driver entry function 
-One that allocates an MDL for a user buffer, allowing us to specify an address in our own userland process space that gets mapped into kernel memory. 
+The rest of the ioctls are quite interesting there is a function that allows you to read the flag into a global kernel buffer that is allocated in the driver entry function and 
+one that allocates an MDL for a user buffer allowing us to specify an address in our own userland process space that gets mapped into kernel memory. 
 
 
 
