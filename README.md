@@ -6,6 +6,9 @@
 # Intro
 
 # Using Binary ninja
+After opening the driver in binary ninja, i immediately noticed the driver entry allocates a [ListEntry type structure](https://learn.microsoft.com/en-us/windows/win32/api/ntdef/ns-ntdef-list_entry) And stores it in the [DriverExtension](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/device-extensions) Field of the DeviceObject.
+
+
 
 # Noticing odd things
 IOCTLS (read file, gFileBuffer etc)
@@ -21,6 +24,9 @@ spray
 read file
 
 # got flag, thoughts on kaslr windows 11 etc.
+
+
+
 ----- preliminary notes start -----
 # first thing i did
 
