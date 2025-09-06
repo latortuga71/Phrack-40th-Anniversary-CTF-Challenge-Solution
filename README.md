@@ -81,68 +81,61 @@ VOID* UserData
 It all added up but i was not able to actually exploit this functionality in any way. I was able to map a user buffer and copy data to the kernel buffer but i didnt really have full control over what was going on. So i took a step back and decided to look at the cleanup function.
 
 # Use After Free
-Taking a look at the cleanup function at a glance shows the driver
 
-checking if the calling process matches the pid in the linkedlist then attempts to free the MDL if still valid then performs a check
-
-that removes the node from the linked list. then frees the pool allocation for the whole node but there is a bug in the check.
-
-if the user buffer contains 0x70 then the node will not be removed. But will still be freed giving us a UAF bug.
+Taking a look at the cleanup function shows the driver checking if the calling process matches the pid in the linkedlist then attempts to free the MDL if still valid. Then performs a check that removes the node from the linked list. After it frees the pool allocation for the whole node but there is a bug in the check. If the user buffer contains 0x70 then the node will not be removed. But will still be freed giving us a UAF bug.
 
 
 <img width="707" height="942" alt="image" src="https://github.com/user-attachments/assets/16c181a1-8b51-414f-9e00-9a5cf3b2d79e" />
 
 
 # Exploitation Thought Process
-The current process i was thinking of the perform the exploit was the following
-
-We connect to the driver and allocate a node of size 0xC0
-
-```
-[HEAD] -> <- [PID1] -> [HEAD]
-```
-We can close the handle to the driver triggering the cleanup
-```
-[HEAD] -> <- [FREE] -> [HEAD]
-```
-Then we can spray the heap so something we control gets put there
-
-```
-[HEAD] -> <- [Something we control] -> [HEAD]
-```
-
-Ideally we would be able to fake object the driver expects and keep the same pid
+The current process i was thinking of the perform the exploit was the following.
 
 
-so the driver knows its our node. As well as setting the IsFreed variable to be a value that bypasses this check 
+0. We connect to the driver and allocate a node of size 0xC0.
+
+```
+[HEAD] -> [PID1] -> [HEAD]
+```
+1. We can close the handle to the driver triggering the cleanup.
+```
+[HEAD] -> [FREE] -> [HEAD]
+```
+2. Then we can spray the heap so something we control gets put there.
+
+```
+[HEAD] -> [Something we control] -> [HEAD]
+```
+3. Abuse the UAF to bypass the checks we need.
+
+
+Ideally we would be able to fake object the driver expects and keep the same pid so the driver knows its our node. As well as setting the IsFreed variable to be a value that bypasses this check 
+
+
 <img width="533" height="39" alt="image" src="https://github.com/user-attachments/assets/87da5bb7-3070-4307-a579-54b8e860480a" />
 
-This would allow us to read the file into the global kernel buffer.
+This would allow us to read the file into the global kernel buffer. From there we should be able to read that kernel buffer into an address we control using the read ioctl.
 
-From there we should be able to read that kernel buffer into an address we control using the read ioctl
 <img width="666" height="473" alt="image" src="https://github.com/user-attachments/assets/4dd9dc42-0e2f-432e-805c-82dfa65a5f46" />
 
 Below are the values we need to control
 
 ```
 {
-LIST_ENTRY* entry <- flink & blink should point to zero'd buffers so we the driver doesnt free the node again which can crash the system
+LIST_ENTRY* entry
 UINT64 PID <- we need to keep it the same
 UINT64 IsFreed <- we need to set it to a value that passes the check
 MDL* Mdl
-UINT64 MappedPhysicalPages <- we need to set it to a user mode address that we control to see the output of the flag.
+UINT64 MappedPhysicalPages <- we need to set it to an address that we control to see the output of the flag.
 UINT64 LengthOfUserData
 VOID* UserData
 }
 ```
 
 # Heap Spray
-Having never performed a kernel heap exploit, i naturally scoured google for information on the topic and found alot of research done on the subject.
+Having never performed a kernel heap exploit, i naturally scoured google for information on the topic and found alot of research done on the subject. But they all seemed to reference work by [Alex Ionescu](www.alex-ionescu.com/kernel-heap-spraying-like-its-2015-swimming-in-the-big-kids-pool/) where he uses named pipes to spray the heap. This approach works great because you can control the size of the allocation of the objects. But the problem is it adds a header to the allocation.
 
-But they all seemed to reference work by [Alex Ionescu](www.alex-ionescu.com/kernel-heap-spraying-like-its-2015-swimming-in-the-big-kids-pool/) where he uses named pipes to spray the heap.
-This approach works great because you can control the size of the allocation of the objects. But the problem is it adds a header to the allocation
-
-The first 0x48 bytes consist of the following data
+The first 0x48 bytes consist of the following header data
 ```
 {
     LIST_ENTRY QueueEntry;
@@ -155,15 +148,7 @@ The first 0x48 bytes consist of the following data
 
 ```
 
-Which doesnt work because we need the DataEntryType to be our PID.  So i continued my search attempting to find a spray that fully controls the data.
-
-
-Eventually i found [this article](https://medium.com/reverence-cyber/cve-2023-36802-mssksrv-sys-local-privilege-escalation-reverence-cyber-d54316eaf118) where robel campbell uses a similar technique
-
-
-leveraging named pipes but by setting them to be unbuffered named pipes you fully control the data and the size of the allocation.
-
-He also included code showing exactly how to perform the spray. Please Check that article for the full writeup on the technique.
+Which doesnt work because we need the DataEntryType to be our PID.  So i continued my search attempting to find a spray that fully controls the data. Eventually i found [this article](https://medium.com/reverence-cyber/cve-2023-36802-mssksrv-sys-local-privilege-escalation-reverence-cyber-d54316eaf118) where robel campbell uses a similar technique leveraging named pipes but by setting them to be unbuffered named pipes you fully control the data and the size of the allocation. He also included code showing exactly how to perform the spray. Please check that article for the full writeup on the technique.
 
 # Exploit
 
