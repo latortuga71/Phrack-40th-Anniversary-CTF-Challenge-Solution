@@ -169,7 +169,10 @@ After some trial and error debugging using !pool and !poolused 2 NtFs i got the 
 
 i was able to get my kernel object to be replaced by data we have full control over.
 
+<img width="618" height="461" alt="image" src="https://github.com/user-attachments/assets/d83028c7-0c96-442c-9365-0dc1fe217f0c" />
 
+Our fake object with correct variables to bypass checks and exfiltrate the flag.
+<img width="511" height="182" alt="image" src="https://github.com/user-attachments/assets/092503a1-196b-4054-a15b-554564200371" />
 
 # References
 * https://github.com/vp777/Windows-Non-Paged-Pool-Overflow-Exploitation&ved=2ahUKEwjEoKOV67-PAxVPSjABHeJsJEcQFnoECBcQAQ&usg=AOvVaw2WpS4aLLeq9QtCeg4NUAc-
