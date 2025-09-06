@@ -17,6 +17,29 @@ Also the driver only has a few IOCTLS, the most interesting being the dispatch c
 <img width="520" height="55" alt="image" src="https://github.com/user-attachments/assets/00a7a662-279e-4a8a-8520-960c2c070681" />
 
 # IOCTLS
+Taking a look at the ioctl handler its what you would expect a simple switch case with each handler.
+<img width="591" height="921" alt="image" src="https://github.com/user-attachments/assets/b9cc679c-95f9-4b93-bab8-a49ceceefeb1" />
+
+Peeking at the first one shows that this function takes the user supplied buffer and creates a NODE of some structure type 
+
+
+consisting of metadata such as the pid of the calling process etc then appends the userdata (our buffer) to that struct and 
+
+
+adds that as a node to the linked list the linked list being the global driver state
+<img width="1363" height="803" alt="image" src="https://github.com/user-attachments/assets/98d1a25e-7540-4de0-a6d7-05a8fce33d7a" />
+
+<img width="744" height="503" alt="image" src="https://github.com/user-attachments/assets/22a5ac44-5deb-4373-b937-e09d32f6d9c2" />
+
+The driver state can now be thought of like this a doubly linked list with some metadata plus the user buffer
+```
+void* flink
+void* blink
+struct metadata
+void* userbuffer
+```
+[HEAD] -> <- [NODE1] -> <- [NODE2] -> <- [HEAD]
+
 
 # Noticing odd things
 IOCTLS (read file, gFileBuffer etc)
