@@ -82,7 +82,7 @@ It all added up but i was not able to actually exploit this functionality in any
 
 # Use After Free
 
-Taking a look at the cleanup function shows the driver checking if the calling process matches the pid in the linkedlist then attempts to free the MDL if still valid. Then performs a check that removes the node from the linked list. After it frees the pool allocation for the whole node but there is a bug in the check. If the user buffer contains 0x70 then the node will not be removed. But will still be freed giving us a UAF bug.
+Taking a look at the cleanup function shows the driver checking if the calling process matches the pid in the linkedlist then attempts to free the MDL if still valid. Then performs a check that removes the node from the linked list. After, it frees the pool allocation for the whole node but there is a bug in the check. If the user buffer contains 0x70 then the node will not be removed. But will still be freed giving us a UAF bug.
 
 
 <img width="707" height="942" alt="image" src="https://github.com/user-attachments/assets/16c181a1-8b51-414f-9e00-9a5cf3b2d79e" />
