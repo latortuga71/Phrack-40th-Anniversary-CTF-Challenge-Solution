@@ -120,7 +120,7 @@ This would allow us to read the file into the global kernel buffer.
 From there we should be able to read that kernel buffer into an address we control using the read ioctl
 <img width="666" height="473" alt="image" src="https://github.com/user-attachments/assets/4dd9dc42-0e2f-432e-805c-82dfa65a5f46" />
 
-
+Below are the values we need to control
 
 ```
 {
@@ -135,41 +135,44 @@ VOID* UserData
 ```
 
 # Heap Spray
+Having never performed a kernel heap exploit, i naturally scoured google for information on the topic and found alot of research done on the subject.
+
+But they all seemed to reference work by [Alex Ionescu](www.alex-ionescu.com/kernel-heap-spraying-like-its-2015-swimming-in-the-big-kids-pool/) where he uses named pipes to spray the heap.
+This approach works great because you can control the size of the allocation of the objects. But the problem is it adds a header to the allocation
+
+The first 0x48 bytes consist of the following data
+```
+{
+    LIST_ENTRY QueueEntry;
+    ULONG DataEntryType;
+    PIRP Irp;
+    ULONG QuotaInEntry;
+    PSECURITY_CLIENT_CONTEXT ClientSecurityContext;
+    ULONG DataSize;
+} NP_DATA_QUEUE_ENTRY, *PNP_DATA_QUEUE_ENTRY;
+
+```
+
+Which doesnt work because we need the DataEntryType to be our PID.  So i continued my search attempting to find a spray that fully controls the data.
 
 
+Eventually i found [this article](https://medium.com/reverence-cyber/cve-2023-36802-mssksrv-sys-local-privilege-escalation-reverence-cyber-d54316eaf118) where robel campbell uses a similar technique
 
 
+leveraging named pipes but by setting them to be unbuffered named pipes you fully control the data and the size of the allocation.
 
+He also included code showing exactly how to perform the spray. Please Check that article for the full writeup on the technique.
 
-# UAF
-confirmed the UAF
+# Exploit
 
-# exploiting by spraying
-spray
-read file
+After some trial and error debugging using !pool and !poolused 2 NtFs i got the size of the allocations to match up perfectly 
 
-# got flag, thoughts on kaslr windows 11 etc.
-todo
-
-# thoughts
-first time exploiting kernel heap, really fun,
-couldnt have done it with all the previous articles and research out there
-
-was thinking perhaps its possible to get RCE? my virtual machine is running
-windows 11 and KASLR bypasses seem to be killed off. the only one i found is the prefetch attack (link here)
-
-that could be research for another time.
-
-
-
-
-
-
+i was able to get my kernel object to be replaced by data we have full control over.
 
 
 
 # References
-* https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://github.com/vp777/Windows-Non-Paged-Pool-Overflow-Exploitation&ved=2ahUKEwjEoKOV67-PAxVPSjABHeJsJEcQFnoECBcQAQ&usg=AOvVaw2WpS4aLLeq9QtCeg4NUAc-
+* https://github.com/vp777/Windows-Non-Paged-Pool-Overflow-Exploitation&ved=2ahUKEwjEoKOV67-PAxVPSjABHeJsJEcQFnoECBcQAQ&usg=AOvVaw2WpS4aLLeq9QtCeg4NUAc-
 * https://connormcgarr.github.io/swimming-in-the-kernel-pool-part-1/
 * https://wetw0rk.github.io/posts/0x03-approaching-the-modern-windows-kernel-heap/
 * www.alex-ionescu.com/kernel-heap-spraying-like-its-2015-swimming-in-the-big-kids-pool/
