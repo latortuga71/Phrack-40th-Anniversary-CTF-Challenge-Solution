@@ -32,22 +32,28 @@ void* userbuffer
 [HEAD] -> [NODE1] -> [NODE2] -> [HEAD]
 ```
 The rest of the ioctls are quite interesting there is a function that allows you to read the flag into a global kernel buffer that is allocated in the driver entry function and 
-one that allocates an MDL for a user buffer allowing us to specify an address in our own userland process space that gets mapped into kernel memory. 
+one that allocates an MDL for a user buffer allowing us to specify an address in our own userland process space that gets mapped into kernel memory. The most notable thing is 
+the ioctl that handles the flag reading has a check that must be passed to complete the read.
+
+Check that must be passed to read
+
+<img width="537" height="41" alt="image" src="https://github.com/user-attachments/assets/918817a7-07dd-4534-b129-988786006c37" />
 
 
 
-Read Flag 
+
+Full Read Flag Function
 
 <img width="1041" height="595" alt="image" src="https://github.com/user-attachments/assets/e24c10e5-3831-4c44-8cd2-897aa2f0105d" />
 
 
-Allocate MDL
+Allocate MDL Function
 
 <img width="979" height="568" alt="image" src="https://github.com/user-attachments/assets/16fac13c-735c-414a-8a85-830df7bf2eb8" />
 
 
 
-As well as three others, one that reads from the kernel buffer into the mapped user buffer, 
+There are three other ioctls, one that reads from the kernel buffer into the mapped user buffer, 
 one that writes from our user buffer to the kernel buffer and one that frees the MDL.
 
 
@@ -89,7 +95,7 @@ Taking a look at the cleanup function shows the driver checking if the calling p
 
 
 # Exploitation Thought Process
-The current process i was thinking of the perform the exploit was the following.
+My thought process to perform the exploit was the following.
 
 
 0. We connect to the driver and allocate a node of size 0xC0.
