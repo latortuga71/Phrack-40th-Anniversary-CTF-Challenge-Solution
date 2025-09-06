@@ -1,7 +1,5 @@
 # Phrack 40th Anniversary CTF Challenge Solution
-
-
-# Spoilers Below
+* https://github.com/xforcered/PhrackCTF/tree/master
 
 # Initial Looks
 After opening the driver in binary ninja, i immediately noticed the driver entry allocates a [ListEntry type structure](https://learn.microsoft.com/en-us/windows/win32/api/ntdef/ns-ntdef-list_entry) and stores it in the [DeviceExtension](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/device-extensions) field of the DeviceObject. 
@@ -355,9 +353,11 @@ int main()
 
 ```
 
-Screenshot of the exploit at the end
-
+After running our exploit we were able to capture the flag.
 <img width="724" height="373" alt="image" src="https://github.com/user-attachments/assets/b7dc91a5-f854-4bfb-b853-20a45f6dc641" />
+
+This was ran on the following version of windows. Also beware the exploit crashes the machine sometimes.
+<img width="533" height="69" alt="image" src="https://github.com/user-attachments/assets/462fc9de-0aee-411e-a0a9-330faba589fe" />
 
 
 # References
