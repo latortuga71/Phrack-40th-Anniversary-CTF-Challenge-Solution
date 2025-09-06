@@ -135,7 +135,7 @@ VOID* UserData
 # Heap Spray
 Having never performed a kernel heap exploit, i naturally scoured google for information on the topic and found alot of research done on the subject. But they all seemed to reference work by [Alex Ionescu](www.alex-ionescu.com/kernel-heap-spraying-like-its-2015-swimming-in-the-big-kids-pool/) where he uses named pipes to spray the heap. This approach works great because you can control the size of the allocation of the objects. But the problem is it adds a header to the allocation.
 
-The first 0x48 bytes consist of the following header data
+The first 0x48 bytes consist of the following header data [Courtesy of Wetw0rk](https://wetw0rk.github.io/posts/0x03-approaching-the-modern-windows-kernel-heap/)
 ```
 {
     LIST_ENTRY QueueEntry;
@@ -152,18 +152,19 @@ Which doesnt work because we need the DataEntryType to be our PID.  So i continu
 
 # Exploit
 
-After some trial and error debugging using !pool and !poolused 2 NtFs i got the size of the allocations to match up perfectly 
-
-i was able to get my kernel object to be replaced by data we have full control over.
-
+After some trial and error debugging using !pool and !poolused i got the size of the allocations to match up perfectly. I was able to get my kernel object to be replaced by data we have full control over.
+Then i set the correct pid value as well as the address to point to a buffer we allocate. Below we can see the spot being taken by our fake object.
 
 Original allocation before being freed.
+
 <img width="618" height="461" alt="image" src="https://github.com/user-attachments/assets/d83028c7-0c96-442c-9365-0dc1fe217f0c" />
 
 The state of the pool after our heap spray fills the empty spot with our fake object.
+
 <img width="830" height="466" alt="image" src="https://github.com/user-attachments/assets/a5b3af24-74db-4737-97f2-2abc12496464" />
 
 Our fake object with correct variables to bypass checks and exfiltrate the flag.
+
 <img width="511" height="182" alt="image" src="https://github.com/user-attachments/assets/092503a1-196b-4054-a15b-554564200371" />
 
 
@@ -345,14 +346,12 @@ int main()
 After running our exploit we were able to capture the flag.
 <img width="724" height="373" alt="image" src="https://github.com/user-attachments/assets/b7dc91a5-f854-4bfb-b853-20a45f6dc641" />
 
-This was ran on the following version of windows. Also beware the exploit crashes the machine sometimes.
+This was ran on the following version of windows. Beware the exploit crashes the machine sometimes.
 <img width="533" height="69" alt="image" src="https://github.com/user-attachments/assets/462fc9de-0aee-411e-a0a9-330faba589fe" />
 
 # Conclusion
-Big thanks to @chompie1337 for this challenge, as it was a great way to spend a couple days getting my feet wet
-with windows kernel heap exploitation.
-
-Also many thanks to all the research listed below!
+Big thanks to [@chompie1337](https://github.com/chompie1337) for this challenge, as it was a great way to spend a couple days getting my feet wet
+with windows kernel heap exploitation. Also many thanks to all the research listed below as it was instrumental in finishing this challenge.
 
 # References
 * https://github.com/vp777/Windows-Non-Paged-Pool-Overflow-Exploitation&ved=2ahUKEwjEoKOV67-PAxVPSjABHeJsJEcQFnoECBcQAQ&usg=AOvVaw2WpS4aLLeq9QtCeg4NUAc-
